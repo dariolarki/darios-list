@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="A personal Portland places index with map browsing, filters, notes, and itinerary building."
+    />
+    <title>Dario's List</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="./index.html" aria-label="Dario's List home">
+        <span class="brand-mark">DL</span>
+        <span>
+          <strong>Dario's List</strong>
+          <small>Portland field guide</small>
+        </span>
+      </a>
+      <div class="topbar-actions">
+        <button class="icon-button" id="importButton" type="button" title="Paste or import places" aria-label="Paste or import places">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+          </svg>
+        </button>
+        <button class="icon-button" id="exportButton" type="button" title="Export places" aria-label="Export places">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 21V9m0 0 4 4m-4-4-4 4M4 7V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2" />
+          </svg>
+        </button>
+        <button class="primary-action" id="addPlaceButton" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          Add spot
+        </button>
+      </div>
+    </header>
+
+    <main class="app-shell">
+      <section class="control-panel" aria-label="Place controls">
+        <div class="intro-row">
+          <div>
+            <p class="eyebrow">Prototype</p>
+            <h1>Places worth leaving the house for.</h1>
+          </div>
+          <div class="stats" aria-label="List summary">
+            <span><strong id="visibleCount">0</strong> visible</span>
+            <span><strong id="savedCount">0</strong> saved</span>
+            <span><strong id="totalCount">0</strong> total</span>
+          </div>
+        </div>
+
+        <div class="toolbar">
+          <label class="search-field" for="searchInput">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m21 21-4.3-4.3M10.8 18a7.2 7.2 0 1 1 0-14.4 7.2 7.2 0 0 1 0 14.4Z" />
+            </svg>
+            <input id="searchInput" type="search" placeholder="Search place, note, mood, tag..." autocomplete="off" />
+          </label>
+          <div class="view-switch" aria-label="View mode">
+            <button class="switch-button is-active" id="listViewButton" type="button" aria-pressed="true">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+              </svg>
+              List
+            </button>
+            <button class="switch-button" id="mapViewButton" type="button" aria-pressed="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M9 18 3 21V6l6-3 6 3 6-3v15l-6 3-6-3Zm0 0V3m6 18V6" />
+              </svg>
+              Map
+            </button>
+          </div>
+        </div>
+
+        <div class="filter-grid">
+          <label>
+            Category
+            <select id="categoryFilter"></select>
+          </label>
+          <label>
+            Neighborhood
+            <select id="neighborhoodFilter"></select>
+          </label>
+          <label>
+            Mood
+            <select id="moodFilter"></select>
+          </label>
+          <label>
+            Moment
+            <select id="momentFilter"></select>
+          </label>
+          <label>
+            Price
+            <select id="priceFilter">
+              <option value="all">Any price</option>
+              <option value="$">$</option>
+              <option value="$$">$$</option>
+              <option value="$$$">$$$</option>
+              <option value="$$$$">$$$$</option>
+            </select>
+          </label>
+          <label>
+            Status
+            <select id="statusFilter">
+              <option value="all">Any status</option>
+              <option value="saved">Saved by me</option>
+              <option value="unreviewed">Unreviewed</option>
+              <option value="favorite">Favorites</option>
+              <option value="revisit">Revisit</option>
+              <option value="try">Want to try</option>
+              <option value="seasonal">Seasonal</option>
+              <option value="verify">Needs verification</option>
+            </select>
+          </label>
+          <label>
+            Sort
+            <select id="sortSelect">
+              <option value="curated">Curated order</option>
+              <option value="name">Name A-Z</option>
+              <option value="neighborhood">Neighborhood</option>
+              <option value="category">Category</option>
+              <option value="price">Price low-high</option>
+              <option value="saved">Saved first</option>
+              <option value="newest">Newest added</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="quick-filters" id="quickFilters" aria-label="Quick filters"></div>
+      </section>
+
+      <section class="content-grid">
+        <div class="places-panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Places</p>
+              <h2 id="resultHeading">All spots</h2>
+            </div>
+            <button class="text-button" id="clearFiltersButton" type="button">Clear</button>
+          </div>
+          <div class="place-list" id="placeList" aria-live="polite"></div>
+          <div class="empty-state" id="emptyState" hidden>
+            <h3>No places match.</h3>
+            <p>Loosen a filter or add the spot you wish existed in this list.</p>
+          </div>
+        </div>
+
+        <aside class="side-panel">
+          <div class="city-map" aria-label="Interactive Portland map">
+            <svg viewBox="0 0 680 520" role="img" aria-labelledby="mapTitle mapDesc">
+              <title id="mapTitle">Portland place map</title>
+              <desc id="mapDesc">A stylized map with place pins positioned by neighborhood.</desc>
+              <path class="river" d="M362 0c-25 72 26 110-5 171-28 55-92 73-79 145 11 63 71 68 76 128 3 37-17 61-37 76h160c18-61-42-92-30-157 13-72 86-89 83-163-2-56-49-86-38-200H362Z" />
+              <path class="road road-1" d="M78 104h520" />
+              <path class="road road-2" d="M46 258h598" />
+              <path class="road road-3" d="M132 406h470" />
+              <path class="road road-4" d="M204 26v458" />
+              <path class="road road-5" d="M498 42v430" />
+              <text x="118" y="73">NW</text>
+              <text x="220" y="228">Pearl</text>
+              <text x="430" y="204">NE</text>
+              <text x="448" y="372">SE</text>
+              <text x="118" y="372">Downtown</text>
+            </svg>
+            <div class="pin-layer" id="pinLayer"></div>
+          </div>
+
+          <div class="planner">
+            <div class="panel-head compact-head">
+              <div>
+                <p class="eyebrow">Route</p>
+                <h2>Build an afternoon</h2>
+              </div>
+              <button class="icon-button" id="shuffleRouteButton" type="button" title="Shuffle route" aria-label="Shuffle route">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5" />
+                </svg>
+              </button>
+              <button class="icon-button" id="copyRouteButton" type="button" title="Copy route" aria-label="Copy route">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M8 8V6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2M6 8h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z" />
+                </svg>
+              </button>
+            </div>
+            <div class="route-controls">
+              <label>
+                Mood
+                <select id="routeMood"></select>
+              </label>
+              <label>
+                Length
+                <select id="routeLength">
+                  <option value="3">3 stops</option>
+                  <option value="4">4 stops</option>
+                  <option value="5">5 stops</option>
+                </select>
+              </label>
+            </div>
+            <ol class="route-list" id="routeList"></ol>
+            <p class="route-status" id="routeStatus" aria-live="polite"></p>
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <dialog class="detail-dialog" id="detailDialog" aria-labelledby="detailTitle">
+      <button class="icon-button dialog-close" id="closeDetailButton" type="button" aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M18 6 6 18M6 6l12 12" />
+        </svg>
+      </button>
+      <div id="detailContent"></div>
+    </dialog>
+
+    <dialog class="add-dialog" id="addDialog" aria-labelledby="addTitle">
+      <form method="dialog" id="addPlaceForm">
+        <div class="dialog-head">
+          <p class="eyebrow" id="placeFormEyebrow">New spot</p>
+          <h2 id="addTitle">Add a place</h2>
+        </div>
+        <div class="form-grid">
+          <label>
+            Name
+            <input name="name" required placeholder="Place name" />
+          </label>
+          <label>
+            Category
+            <input name="category" required placeholder="Coffee, Dinner, Park..." />
+          </label>
+          <label>
+            Neighborhood
+            <input name="neighborhood" required placeholder="SE Division" />
+          </label>
+          <label>
+            Price
+            <select name="price">
+              <option>$</option>
+              <option>$$</option>
+              <option>$$$</option>
+              <option>$$$$</option>
+            </select>
+          </label>
+          <label>
+            Status
+            <select name="status">
+              <option value="unreviewed">Unreviewed</option>
+              <option value="try">Want to try</option>
+              <option value="favorite">Favorite</option>
+              <option value="revisit">Revisit</option>
+              <option value="seasonal">Seasonal</option>
+              <option value="verify">Needs verification</option>
+            </select>
+          </label>
+          <label>
+            Address
+            <input name="address" placeholder="Street address or area" />
+          </label>
+          <label>
+            Maps URL
+            <input name="mapsUrl" inputmode="url" placeholder="https://maps.apple.com/..." />
+          </label>
+          <label>
+            Website
+            <input name="website" inputmode="url" placeholder="https://..." />
+          </label>
+          <label class="wide">
+            Dario note
+            <textarea name="note" rows="3" required placeholder="Why this place belongs on the list"></textarea>
+          </label>
+          <label>
+            Best for
+            <input name="best" placeholder="Solo morning, late dinner..." />
+          </label>
+          <label>
+            Order / do
+            <input name="order" placeholder="Espresso, house pasta, reservoir loop..." />
+          </label>
+          <label>
+            Not for
+            <input name="avoid" placeholder="Rushed mornings, loud groups..." />
+          </label>
+          <label>
+            Tags
+            <input name="tags" placeholder="espresso, date, rainy day" />
+          </label>
+          <label>
+            Moods
+            <input name="moods" placeholder="cozy, focused, celebratory" />
+          </label>
+          <label>
+            Moments
+            <input name="moments" placeholder="morning, date, visitor" />
+          </label>
+        </div>
+        <div class="dialog-actions">
+          <button class="danger-button" id="deletePlaceButton" type="button" hidden>Delete</button>
+          <button class="text-button" id="cancelAddButton" type="button">Cancel</button>
+          <button class="primary-action" id="savePlaceButton" type="submit">Save spot</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="import-dialog" id="importDialog" aria-labelledby="importTitle">
+      <form method="dialog">
+        <div class="dialog-head">
+          <p class="eyebrow">Bulk intake</p>
+          <h2 id="importTitle">Paste a Maps list or rough notes</h2>
+          <p>
+            One place per line works. Use pipes or dashes for extra detail:
+            <strong>Name | Category | Neighborhood | Note</strong>.
+          </p>
+        </div>
+        <textarea
+          id="bulkImportText"
+          class="bulk-textarea"
+          rows="10"
+          placeholder="Example:
+Bar Norman | Drinks | SE Clinton | natural wine, date, night
+Sweedeedee - Brunch - Albina - cozy breakfast
+Some saved Maps place"
+        ></textarea>
+        <div class="import-preview" id="importPreview">
+          <strong>0 places ready</strong>
+          <span>Paste lines to preview the import.</span>
+        </div>
+        <div class="dialog-actions">
+          <button class="text-button" id="chooseJsonButton" type="button">Choose JSON</button>
+          <button class="text-button" id="cancelImportButton" type="button">Cancel</button>
+          <button class="primary-action" id="commitImportButton" type="button">Import places</button>
+        </div>
+      </form>
+    </dialog>
+
+    <input id="importFile" type="file" accept="application/json" hidden />
+    <script src="./places.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
