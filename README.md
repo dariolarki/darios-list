@@ -16,6 +16,13 @@ The default list now includes the pruned original prototype places, manually add
 - Build a short route by mood and copy it as text.
 - Export all places as JSON.
 - Import JSON or paste rough text into the bulk importer.
+- Use Google Maps when `GOOGLE_MAPS_API_KEY` is configured, with the local stylized map as a fallback.
+
+## Google Maps Setup
+
+The repo commits an empty `config.js` for local development. Vercel generates the deployed `config.js` during `npm run build` from the `GOOGLE_MAPS_API_KEY` environment variable.
+
+Create a Google Maps JavaScript API key, restrict it to the production domain, then add it to Vercel as `GOOGLE_MAPS_API_KEY`. Client-side map keys are visible in the browser by design, so HTTP referrer restrictions are the important safety boundary.
 
 ## Bulk Paste Format
 

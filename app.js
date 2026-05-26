@@ -12,6 +12,14 @@ const palette = [
 ];
 
 const seedPlaces = window.DARIOS_LIST_PLACES || [];
+const appConfig = window.DARIOS_LIST_CONFIG || {};
+const portlandCenter = { lat: 45.5152, lng: -122.6784 };
+const approximateMapBounds = {
+  north: 45.64,
+  south: 45.32,
+  west: -122.96,
+  east: -122.48,
+};
 
 const els = {
   visibleCount: document.querySelector("#visibleCount"),
@@ -30,6 +38,9 @@ const els = {
   clearFiltersButton: document.querySelector("#clearFiltersButton"),
   placeList: document.querySelector("#placeList"),
   emptyState: document.querySelector("#emptyState"),
+  googleMap: document.querySelector("#googleMap"),
+  mapFallback: document.querySelector("#mapFallback"),
+  mapStatus: document.querySelector("#mapStatus"),
   pinLayer: document.querySelector("#pinLayer"),
   routeMood: document.querySelector("#routeMood"),
   routeLength: document.querySelector("#routeLength"),
@@ -88,6 +99,13 @@ const quickFilters = [
   ["solo", "Solo reset"],
   ["gift", "Gift hunt"],
 ];
+
+const mapState = {
+  map: null,
+  infoWindow: null,
+  markers: new Map(),
+  loader: null,
+};
 
 function loadPlaces() {
   const stored = localStorage.getItem(STORAGE_KEY);
@@ -198,7 +216,7 @@ function render() {
   els.resultHeading.textContent = headingForFilters(places.length);
   els.emptyState.hidden = places.length > 0;
   renderPlaces(places);
-  renderPins(places);
+  renderMap(places);
   renderRoute();
   renderQuickFilters();
   persistViewState();
@@ -264,6 +282,208 @@ function renderPins(visiblePlaces) {
       `;
     })
     .join("");
+}
+
+function renderMap(visiblePlaces) {
+  renderPins(visiblePlaces);
+  if (!googleMapsApiKey()) {
+    showMapFallback("Map preview", "Live Google map turns on when the production key is configured.");
+  }
+  if (mapState.map) updateGoogleMarkers(visiblePlaces);
+}
+
+function googleMapsApiKey() {
+  return String(appConfig.googleMapsApiKey || "").trim();
+}
+
+async function ensureGoogleMap() {
+  if (mapState.map) {
+    showGoogleMap();
+    return true;
+  }
+
+  const key = googleMapsApiKey();
+  if (!key) {
+    showMapFallback("Map preview", "Live Google map turns on when the production key is configured.");
+    return false;
+  }
+
+  setMapStatus("Loading map", "Pulling in Google Maps.");
+
+  try {
+    await loadGoogleMapsScript(key);
+    if (!window.google?.maps?.Map) throw new Error("Google Maps did not initialize.");
+
+    mapState.map = new google.maps.Map(els.googleMap, {
+      center: portlandCenter,
+      zoom: 11,
+      clickableIcons: false,
+      fullscreenControl: false,
+      mapTypeControl: false,
+      streetViewControl: false,
+      styles: [
+        { featureType: "poi", elementType: "labels.icon", stylers: [{ visibility: "off" }] },
+        { featureType: "poi.business", stylers: [{ visibility: "off" }] },
+        { featureType: "road", elementType: "geometry", stylers: [{ saturation: -60 }, { lightness: 20 }] },
+        { featureType: "water", elementType: "geometry", stylers: [{ color: "#9fb9c6" }] },
+        { featureType: "landscape", elementType: "geometry", stylers: [{ color: "#f2eee4" }] },
+      ],
+    });
+    mapState.infoWindow = new google.maps.InfoWindow();
+    showGoogleMap();
+    updateGoogleMarkers(filteredPlaces());
+    return true;
+  } catch {
+    showMapFallback("Map preview", "Google Maps could not load, so the local preview is still active.");
+    return false;
+  }
+}
+
+function loadGoogleMapsScript(key) {
+  if (window.google?.maps?.Map) return Promise.resolve();
+  if (mapState.loader) return mapState.loader;
+
+  mapState.loader = new Promise((resolve, reject) => {
+    const callbackName = "initDariosListMap";
+    window[callbackName] = () => resolve();
+
+    const script = document.createElement("script");
+    script.async = true;
+    script.defer = true;
+    script.dataset.googleMaps = "true";
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&callback=${callbackName}&v=weekly`;
+    script.addEventListener("error", () => reject(new Error("Google Maps script failed to load.")));
+    document.head.append(script);
+  });
+
+  return mapState.loader;
+}
+
+function updateGoogleMarkers(visiblePlaces) {
+  const visibleIds = new Set(visiblePlaces.map((place) => place.id));
+  const currentIds = new Set(state.places.map((place) => place.id));
+
+  for (const [id, marker] of mapState.markers) {
+    if (!currentIds.has(id)) {
+      marker.setMap(null);
+      mapState.markers.delete(id);
+    }
+  }
+
+  for (const place of state.places) {
+    const position = coordsForPlace(place);
+    const label = place.category.slice(0, 1).toUpperCase();
+    let marker = mapState.markers.get(place.id);
+
+    if (!marker) {
+      marker = new google.maps.Marker({
+        position,
+        map: mapState.map,
+        title: place.name,
+        label: {
+          text: label,
+          color: "#fffdf8",
+          fontSize: "11px",
+          fontWeight: "900",
+        },
+        icon: googleMarkerIcon(place),
+      });
+      marker.addListener("click", () => openDetail(place.id));
+      mapState.markers.set(place.id, marker);
+    } else {
+      marker.setPosition(position);
+      marker.setTitle(place.name);
+      marker.setLabel({
+        text: label,
+        color: "#fffdf8",
+        fontSize: "11px",
+        fontWeight: "900",
+      });
+      marker.setIcon(googleMarkerIcon(place));
+    }
+
+    marker.setVisible(visibleIds.has(place.id));
+  }
+
+  if (els.contentGrid.classList.contains("is-map-only")) fitMapToPlaces(visiblePlaces);
+}
+
+function googleMarkerIcon(place) {
+  const saved = state.saved.has(place.id);
+  return {
+    path: google.maps.SymbolPath.CIRCLE,
+    scale: saved ? 11 : 9,
+    fillColor: colorsFor(place)[0],
+    fillOpacity: 0.96,
+    strokeColor: saved ? "#b87926" : "#fffdf8",
+    strokeOpacity: 1,
+    strokeWeight: saved ? 3 : 2,
+  };
+}
+
+function fitMapToPlaces(places) {
+  if (!mapState.map || !places.length) return;
+
+  if (places.length === 1) {
+    mapState.map.setCenter(coordsForPlace(places[0]));
+    mapState.map.setZoom(14);
+    return;
+  }
+
+  const bounds = new google.maps.LatLngBounds();
+  places.forEach((place) => bounds.extend(coordsForPlace(place)));
+  mapState.map.fitBounds(bounds, 42);
+}
+
+function coordsForPlace(place) {
+  const lat = Number(place.lat);
+  const lng = Number(place.lng);
+  if (place.lat !== null && place.lng !== null && Number.isFinite(lat) && Number.isFinite(lng)) {
+    return { lat, lng };
+  }
+
+  const x = clamp(Number(place.x) || 50, 0, 100);
+  const y = clamp(Number(place.y) || 50, 0, 100);
+  const seed = Math.abs(hashCode(place.id || place.name));
+  const latJitter = (((seed % 100) / 100) - 0.5) * 0.006;
+  const lngJitter = ((((seed >> 7) % 100) / 100) - 0.5) * 0.008;
+  const latRange = approximateMapBounds.north - approximateMapBounds.south;
+  const lngRange = approximateMapBounds.east - approximateMapBounds.west;
+
+  return {
+    lat: approximateMapBounds.north - (y / 100) * latRange + latJitter,
+    lng: approximateMapBounds.west + (x / 100) * lngRange + lngJitter,
+  };
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function showGoogleMap() {
+  els.googleMap.classList.add("is-active");
+  els.mapFallback.classList.add("is-hidden");
+}
+
+function showMapFallback(title, message) {
+  els.googleMap.classList.remove("is-active");
+  els.mapFallback.classList.remove("is-hidden");
+  setMapStatus(title, message);
+}
+
+function setMapStatus(title, message) {
+  els.mapStatus.innerHTML = `<strong>${escapeHtml(title)}</strong><span>${escapeHtml(message)}</span>`;
+}
+
+function activateMapView() {
+  els.contentGrid.classList.add("is-map-only");
+  els.mapViewButton.classList.add("is-active");
+  els.listViewButton.classList.remove("is-active");
+  els.mapViewButton.setAttribute("aria-pressed", "true");
+  els.listViewButton.setAttribute("aria-pressed", "false");
+  ensureGoogleMap().then((ready) => {
+    if (ready) renderMap(filteredPlaces());
+  });
 }
 
 function renderRoute() {
@@ -900,11 +1120,7 @@ els.listViewButton.addEventListener("click", () => {
   els.mapViewButton.setAttribute("aria-pressed", "false");
 });
 els.mapViewButton.addEventListener("click", () => {
-  els.contentGrid.classList.add("is-map-only");
-  els.mapViewButton.classList.add("is-active");
-  els.listViewButton.classList.remove("is-active");
-  els.mapViewButton.setAttribute("aria-pressed", "true");
-  els.listViewButton.setAttribute("aria-pressed", "false");
+  activateMapView();
 });
 
 loadViewState();

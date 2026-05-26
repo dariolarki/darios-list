@@ -152,22 +152,29 @@
 
         <aside class="side-panel">
           <div class="city-map" aria-label="Interactive Portland map">
-            <svg viewBox="0 0 680 520" role="img" aria-labelledby="mapTitle mapDesc">
-              <title id="mapTitle">Portland place map</title>
-              <desc id="mapDesc">A stylized map with place pins positioned by neighborhood.</desc>
-              <path class="river" d="M362 0c-25 72 26 110-5 171-28 55-92 73-79 145 11 63 71 68 76 128 3 37-17 61-37 76h160c18-61-42-92-30-157 13-72 86-89 83-163-2-56-49-86-38-200H362Z" />
-              <path class="road road-1" d="M78 104h520" />
-              <path class="road road-2" d="M46 258h598" />
-              <path class="road road-3" d="M132 406h470" />
-              <path class="road road-4" d="M204 26v458" />
-              <path class="road road-5" d="M498 42v430" />
-              <text x="118" y="73">NW</text>
-              <text x="220" y="228">Pearl</text>
-              <text x="430" y="204">NE</text>
-              <text x="448" y="372">SE</text>
-              <text x="118" y="372">Downtown</text>
-            </svg>
-            <div class="pin-layer" id="pinLayer"></div>
+            <div class="google-map" id="googleMap" aria-label="Google map of Dario's List places"></div>
+            <div class="map-fallback" id="mapFallback">
+              <svg class="fallback-map" viewBox="0 0 680 520" role="img" aria-labelledby="mapTitle mapDesc">
+                <title id="mapTitle">Portland place map</title>
+                <desc id="mapDesc">A stylized map with place pins positioned by neighborhood.</desc>
+                <path class="river" d="M362 0c-25 72 26 110-5 171-28 55-92 73-79 145 11 63 71 68 76 128 3 37-17 61-37 76h160c18-61-42-92-30-157 13-72 86-89 83-163-2-56-49-86-38-200H362Z" />
+                <path class="road road-1" d="M78 104h520" />
+                <path class="road road-2" d="M46 258h598" />
+                <path class="road road-3" d="M132 406h470" />
+                <path class="road road-4" d="M204 26v458" />
+                <path class="road road-5" d="M498 42v430" />
+                <text x="118" y="73">NW</text>
+                <text x="220" y="228">Pearl</text>
+                <text x="430" y="204">NE</text>
+                <text x="448" y="372">SE</text>
+                <text x="118" y="372">Downtown</text>
+              </svg>
+              <div class="pin-layer" id="pinLayer"></div>
+              <div class="map-status" id="mapStatus" aria-live="polite">
+                <strong>Map preview</strong>
+                <span>Live Google map turns on when the production key is configured.</span>
+              </div>
+            </div>
           </div>
 
           <div class="planner">
@@ -338,6 +345,7 @@ Some saved Maps place"
 
     <input id="importFile" type="file" accept="application/json" hidden />
     <script src="./places.js"></script>
+    <script src="./config.js"></script>
     <script src="./app.js"></script>
   </body>
 </html>
