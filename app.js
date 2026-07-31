@@ -3,12 +3,12 @@ const SAVED_KEY = "darios-list.saved.v1";
 const VIEW_KEY = "darios-list.view.v1";
 
 const palette = [
-  ["#8b4a2f", "#d98f56"],
-  ["#2f5f8f", "#71a7c9"],
-  ["#4f6f52", "#a7b75c"],
-  ["#bd3f2d", "#eaa25f"],
-  ["#6d578f", "#c49ad6"],
-  ["#b87926", "#e5c46b"],
+  ["#0a36f5", "#071f9f"],
+  ["#0a36f5", "#071f9f"],
+  ["#0a36f5", "#071f9f"],
+  ["#0a36f5", "#071f9f"],
+  ["#0a36f5", "#071f9f"],
+  ["#0a36f5", "#071f9f"],
 ];
 
 const seedPlaces = window.DARIOS_LIST_PLACES || [];
@@ -33,6 +33,8 @@ const els = {
   priceFilter: document.querySelector("#priceFilter"),
   statusFilter: document.querySelector("#statusFilter"),
   sortSelect: document.querySelector("#sortSelect"),
+  filtersToggleButton: document.querySelector("#filtersToggleButton"),
+  filterGrid: document.querySelector("#filterGrid"),
   quickFilters: document.querySelector("#quickFilters"),
   resultHeading: document.querySelector("#resultHeading"),
   clearFiltersButton: document.querySelector("#clearFiltersButton"),
@@ -233,33 +235,37 @@ function headingForFilters(count) {
 function renderPlaces(places) {
   els.placeList.innerHTML = places
     .map((place, index) => {
-      const [a, b] = colorsFor(place);
       const saved = state.saved.has(place.id);
-      const tags = place.tags.slice(0, 3).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("");
+      const displayIndex = String(place.rank || index + 1).padStart(3, "0");
       return `
-        <article class="place-card" style="--accent-a:${a};--accent-b:${b}">
-          <button class="place-art" type="button" data-open="${escapeAttr(place.id)}" aria-label="Open ${escapeAttr(place.name)}"></button>
-          <div class="place-body">
-            <div class="place-meta">
-              <span>${escapeHtml(place.category)}</span>
-              <span>${escapeHtml(place.neighborhood)}</span>
-              <span>${escapeHtml(place.price)}</span>
-              <span>${statusLabel(place.status)}</span>
-            </div>
-            <h3>${escapeHtml(place.name)}</h3>
-            <p class="place-note">${escapeHtml(place.note)}</p>
-            <div class="tag-row">${tags}</div>
-            <div class="card-actions">
-              <button class="save-button ${saved ? "is-saved" : ""}" type="button" data-save="${escapeAttr(place.id)}">
-                ${saved ? "Saved" : "Save"}
-              </button>
-              <button class="text-button" type="button" data-open="${escapeAttr(place.id)}">Details</button>
-            </div>
+        <article class="place-card">
+          <span class="place-index">${displayIndex}</span>
+          <button class="place-primary" type="button" data-open="${escapeAttr(place.id)}" aria-label="Open ${escapeAttr(place.name)}">
+            <strong>${escapeHtml(place.name)}</strong>
+            <span>${escapeHtml(place.note)}</span>
+          </button>
+          <span class="place-data place-category">${escapeHtml(place.category)}</span>
+          <span class="place-data place-neighborhood">${escapeHtml(place.neighborhood)}</span>
+          <span class="place-data place-price">${escapeHtml(place.price)}</span>
+          <span class="place-data place-status">${statusLabel(place.status)}</span>
+          <div class="card-actions">
+            <button class="save-button ${saved ? "is-saved" : ""}" type="button" data-save="${escapeAttr(place.id)}" aria-label="${saved ? "Remove" : "Save"} ${escapeAttr(place.name)}">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6.5 4.5h11v15l-5.5-3-5.5 3v-15Z" />
+              </svg>
+              <span>${saved ? "Saved" : "Save"}</span>
+            </button>
+            <button class="details-button" type="button" data-open="${escapeAttr(place.id)}" aria-label="View details for ${escapeAttr(place.name)}">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m9 5 7 7-7 7" />
+              </svg>
+            </button>
           </div>
         </article>
       `;
     })
     .join("");
+  observePlaceRows();
 }
 
 function renderPins(visiblePlaces) {
@@ -271,7 +277,7 @@ function renderPins(visiblePlaces) {
       return `
         <button
           class="map-pin ${muted} ${saved}"
-          style="left:${place.x}%;top:${place.y}%;--pin:${colorsFor(place)[0]}"
+          style="left:${place.x}%;top:${place.y}%"
           type="button"
           data-open="${escapeAttr(place.id)}"
           title="${escapeAttr(place.name)}"
@@ -324,9 +330,9 @@ async function ensureGoogleMap() {
       styles: [
         { featureType: "poi", elementType: "labels.icon", stylers: [{ visibility: "off" }] },
         { featureType: "poi.business", stylers: [{ visibility: "off" }] },
-        { featureType: "road", elementType: "geometry", stylers: [{ saturation: -60 }, { lightness: 20 }] },
-        { featureType: "water", elementType: "geometry", stylers: [{ color: "#9fb9c6" }] },
-        { featureType: "landscape", elementType: "geometry", stylers: [{ color: "#f2eee4" }] },
+        { featureType: "road", elementType: "geometry", stylers: [{ saturation: -100 }, { lightness: 30 }] },
+        { featureType: "water", elementType: "geometry", stylers: [{ color: "#dce5ff" }] },
+        { featureType: "landscape", elementType: "geometry", stylers: [{ color: "#f8f9fc" }] },
       ],
     });
     mapState.infoWindow = new google.maps.InfoWindow();
@@ -687,7 +693,6 @@ function deletePlace(id) {
 function renderDetail(id) {
   const place = state.places.find((item) => item.id === id);
   if (!place) return;
-  const [a, b] = colorsFor(place);
   const saved = state.saved.has(place.id);
   const nearby = nearbyPlaces(place, 4)
     .map(
@@ -706,7 +711,10 @@ function renderDetail(id) {
   ].filter(Boolean);
   const sourceDetail = [place.appleCategory, place.source].filter(Boolean).join(" · ") || "Imported place";
   els.detailContent.innerHTML = `
-    <div class="detail-hero" style="--accent-a:${a};--accent-b:${b}"></div>
+    <div class="detail-hero">
+      <span>DL / ${String(place.rank || "—").padStart(3, "0")}</span>
+      <strong>Portland field note</strong>
+    </div>
     <div class="detail-body">
       <div class="detail-meta">
         <span>${escapeHtml(place.category)}</span>
@@ -1045,6 +1053,35 @@ function escapeAttr(value) {
   return escapeHtml(value);
 }
 
+let revealObserver;
+
+function observePlaceRows() {
+  const rows = [...document.querySelectorAll(".place-card")];
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches || !("IntersectionObserver" in window)) {
+    rows.forEach((row) => row.classList.add("is-visible"));
+    return;
+  }
+  if (!revealObserver) {
+    revealObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          entry.target.classList.add("is-visible");
+          revealObserver.unobserve(entry.target);
+        });
+      },
+      { rootMargin: "0px 0px -8% 0px", threshold: 0.08 },
+    );
+  }
+  rows.forEach((row) => revealObserver.observe(row));
+}
+
+function updateScrollProgress() {
+  const available = Math.max(document.documentElement.scrollHeight - window.innerHeight, 1);
+  const progress = Math.min(Math.max(window.scrollY / available, 0), 1);
+  document.documentElement.style.setProperty("--scroll-progress", progress);
+}
+
 els.searchInput.addEventListener("input", (event) => setFilter("query", event.target.value));
 els.categoryFilter.addEventListener("change", (event) => setFilter("category", event.target.value));
 els.neighborhoodFilter.addEventListener("change", (event) => setFilter("neighborhood", event.target.value));
@@ -1053,6 +1090,10 @@ els.momentFilter.addEventListener("change", (event) => setFilter("moment", event
 els.priceFilter.addEventListener("change", (event) => setFilter("price", event.target.value));
 els.statusFilter.addEventListener("change", (event) => setFilter("status", event.target.value));
 els.sortSelect.addEventListener("change", (event) => setFilter("sort", event.target.value));
+els.filtersToggleButton.addEventListener("click", () => {
+  const open = els.filterGrid.classList.toggle("is-open");
+  els.filtersToggleButton.setAttribute("aria-expanded", String(open));
+});
 els.routeMood.addEventListener("change", renderRoute);
 els.routeLength.addEventListener("change", renderRoute);
 els.shuffleRouteButton.addEventListener("click", () => {
@@ -1127,3 +1168,5 @@ loadViewState();
 setupFilters();
 syncFilterControls();
 render();
+updateScrollProgress();
+window.addEventListener("scroll", updateScrollProgress, { passive: true });
