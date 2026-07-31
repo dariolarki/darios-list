@@ -1,0 +1,18 @@
+{
+  "name": "Dario's List",
+  "short_name": "Dario's List",
+  "description": "An opinionated Portland field guide for places worth leaving the house for.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0a36f5",
+  "icons": [
+    {
+      "src": "./favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
