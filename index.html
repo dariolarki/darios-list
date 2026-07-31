@@ -5,31 +5,42 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="A personal Portland places index with map browsing, filters, notes, and itinerary building."
+      content="Dario’s opinionated Portland field guide: places, neighborhood indexes, practical notes, and routes worth leaving the house for."
     />
+    <meta name="theme-color" content="#0a36f5" />
+    <meta property="og:title" content="Dario’s List — Portland field guide" />
+    <meta
+      property="og:description"
+      content="An opinionated Portland field guide built from places Dario wants to remember, revisit, and share."
+    />
+    <meta property="og:type" content="website" />
     <title>Dario's List</title>
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="stylesheet" href="./styles.css?v=3" />
   </head>
   <body>
     <header class="topbar">
       <a class="brand" href="./index.html" aria-label="Dario's List home">
-        <span class="brand-mark">DL</span>
-        <span>
-          <strong>Dario's List</strong>
-          <small>Portland field guide</small>
+        <span class="brand-wordmark">Dario’s List</span>
+        <span class="field-signal" aria-hidden="true">
+          <span class="route-kink"></span>
+          <span class="coordinates">45.5152° N<br />122.6784° W</span>
+          <span class="field-label">Portland<br />field guide</span>
         </span>
       </a>
-      <div class="topbar-actions">
+      <div class="topbar-actions owner-only">
         <button class="icon-button" id="importButton" type="button" title="Paste or import places" aria-label="Paste or import places">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
           </svg>
+          <span class="action-label">Import</span>
         </button>
         <button class="icon-button" id="exportButton" type="button" title="Export places" aria-label="Export places">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 21V9m0 0 4 4m-4-4-4 4M4 7V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2" />
           </svg>
+          <span class="action-label">Export</span>
         </button>
         <button class="primary-action" id="addPlaceButton" type="button">
           <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -38,13 +49,13 @@
           Add spot
         </button>
       </div>
+      <span class="scroll-progress" aria-hidden="true"></span>
     </header>
 
     <main class="app-shell">
       <section class="control-panel" aria-label="Place controls">
         <div class="intro-row">
           <div>
-            <p class="eyebrow">Prototype</p>
             <h1>Places worth leaving the house for.</h1>
           </div>
           <div class="stats" aria-label="List summary">
@@ -74,10 +85,26 @@
               </svg>
               Map
             </button>
+            <button class="switch-button" id="guideViewButton" type="button" aria-pressed="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 5.5A3.5 3.5 0 0 1 7.5 2H11v17H7.5A3.5 3.5 0 0 0 4 22V5.5ZM20 5.5A3.5 3.5 0 0 0 16.5 2H13v17h3.5A3.5 3.5 0 0 1 20 22V5.5Z" />
+              </svg>
+              Guides
+            </button>
           </div>
         </div>
 
-        <div class="filter-grid">
+        <button class="filters-toggle" id="filtersToggleButton" type="button" aria-expanded="false" aria-controls="filterGrid">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6" />
+          </svg>
+          <span>Filters</span>
+          <svg class="filters-chevron" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </button>
+
+        <div class="filter-grid" id="filterGrid">
           <label>
             Category
             <select id="categoryFilter"></select>
@@ -104,7 +131,7 @@
               <option value="$$$$">$$$$</option>
             </select>
           </label>
-          <label>
+          <label class="filter-status-owner">
             Status
             <select id="statusFilter">
               <option value="all">Any status</option>
@@ -137,13 +164,18 @@
       <section class="content-grid">
         <div class="places-panel">
           <div class="panel-head">
-            <div>
-              <p class="eyebrow">Places</p>
-              <h2 id="resultHeading">All spots</h2>
-            </div>
+            <h2 id="resultHeading">All spots</h2>
             <button class="text-button" id="clearFiltersButton" type="button">Clear</button>
           </div>
-          <div class="place-list" id="placeList" aria-live="polite"></div>
+          <div class="place-columns" aria-hidden="true">
+            <span>Place</span>
+            <span>Category</span>
+            <span>Neighborhood</span>
+            <span>Price</span>
+            <span class="place-status-owner">Status</span>
+          </div>
+          <p class="sr-only" id="resultStatus" aria-live="polite"></p>
+          <div class="place-list" id="placeList"></div>
           <div class="empty-state" id="emptyState" hidden>
             <h3>No places match.</h3>
             <p>Loosen a filter or add the spot you wish existed in this list.</p>
@@ -180,7 +212,6 @@
           <div class="planner">
             <div class="panel-head compact-head">
               <div>
-                <p class="eyebrow">Route</p>
                 <h2>Build an afternoon</h2>
               </div>
               <button class="icon-button" id="shuffleRouteButton" type="button" title="Shuffle route" aria-label="Shuffle route">
@@ -210,9 +241,46 @@
             </div>
             <ol class="route-list" id="routeList"></ol>
             <p class="route-status" id="routeStatus" aria-live="polite"></p>
+            <a class="route-map-link" id="openRouteButton" href="#" target="_blank" rel="noopener" hidden>
+              Open route in Google Maps
+            </a>
           </div>
         </aside>
       </section>
+
+      <section class="guides-panel" id="guidesPanel" hidden aria-labelledby="guidesTitle">
+        <header class="guides-head">
+          <div>
+            <p class="eyebrow">Neighborhood index / data-derived</p>
+            <h2 id="guidesTitle">Portland, by neighborhood.</h2>
+          </div>
+          <p>
+            A practical way into the list: real counts, recurring categories, and the field notes already attached to each place.
+          </p>
+        </header>
+        <div class="guides-layout">
+          <aside class="guide-index" aria-label="Neighborhoods">
+            <label class="guide-search" for="guideSearch">
+              Search neighborhoods
+              <input id="guideSearch" type="search" placeholder="Kerns, Alberta, downtown…" autocomplete="off" />
+            </label>
+            <div id="guideList"></div>
+          </aside>
+          <article class="guide-detail" id="guideDetail"></article>
+        </div>
+      </section>
+
+      <footer class="site-footer">
+        <div>
+          <strong>Dario’s List</strong>
+          <span>Portland field notes, kept personal.</span>
+        </div>
+        <p>
+          Saves and visits stay in this browser. Live hours, phone numbers, photos, and directions come from their linked providers when available.
+          <a href="./privacy.html">Data & privacy</a>
+        </p>
+        <span id="connectionStatus" role="status">Checking connection…</span>
+      </footer>
     </main>
 
     <dialog class="detail-dialog" id="detailDialog" aria-labelledby="detailTitle">
@@ -275,6 +343,33 @@
             Website
             <input name="website" inputmode="url" placeholder="https://..." />
           </label>
+          <label>
+            Reviewed Google Place ID
+            <input name="googlePlaceId" autocomplete="off" placeholder="ChIJ…" />
+          </label>
+          <label>
+            Google match
+            <select name="googleMatchStatus">
+              <option value="pending">Pending review</option>
+              <option value="verified">Verified match</option>
+              <option value="rejected">Rejected match</option>
+            </select>
+          </label>
+          <label>
+            Latitude
+            <input name="lat" type="number" step="any" min="-90" max="90" placeholder="45.5152" />
+          </label>
+          <label>
+            Longitude
+            <input name="lng" type="number" step="any" min="-180" max="180" placeholder="-122.6784" />
+          </label>
+          <label>
+            Coordinate confidence
+            <select name="coordinateStatus">
+              <option value="pending">Pending verification</option>
+              <option value="verified">Verified manually</option>
+            </select>
+          </label>
           <label class="wide">
             Dario note
             <textarea name="note" rows="3" required placeholder="Why this place belongs on the list"></textarea>
@@ -326,6 +421,7 @@
           id="bulkImportText"
           class="bulk-textarea"
           rows="10"
+          maxlength="100000"
           placeholder="Example:
 Bar Norman | Drinks | SE Clinton | natural wine, date, night
 Sweedeedee - Brunch - Albina - cozy breakfast
@@ -344,8 +440,10 @@ Some saved Maps place"
     </dialog>
 
     <input id="importFile" type="file" accept="application/json" hidden />
-    <script src="./places.js"></script>
-    <script src="./config.js"></script>
-    <script src="./app.js"></script>
+    <script src="./places.js?v=3"></script>
+    <script src="./neighborhoods.generated.js?v=3"></script>
+    <script src="./config.js?v=3"></script>
+    <script src="./maps-integration.js?v=3"></script>
+    <script src="./app.js?v=3"></script>
   </body>
 </html>

@@ -1,5 +1,9 @@
 {
   "scripts": {
-    "build": "node scripts/build.mjs"
+    "build": "node scripts/build.mjs",
+    "check": "npm run check:code && npm run validate:data && npm run generate:neighborhoods -- --check",
+    "check:code": "node --check app.js && node --check maps-integration.js && node --check service-worker.js && node --check scripts/build.mjs",
+    "validate:data": "node scripts/validate-data.mjs",
+    "generate:neighborhoods": "node scripts/generate-neighborhood-data.mjs"
   }
 }

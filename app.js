@@ -1,25 +1,33 @@
-const STORAGE_KEY = "darios-list.places.v1";
-const SAVED_KEY = "darios-list.saved.v1";
-const VIEW_KEY = "darios-list.view.v1";
+const STORAGE_KEY = "darios-list.places.v2";
+const SAVED_KEY = "darios-list.saved.v2";
+const VISITED_KEY = "darios-list.visited.v1";
+const VIEW_KEY = "darios-list.view.v2";
+const LEGACY_KEYS = {
+  places: "darios-list.places.v1",
+  saved: "darios-list.saved.v1",
+  view: "darios-list.view.v1",
+};
 
 const palette = [
-  ["#8b4a2f", "#d98f56"],
-  ["#2f5f8f", "#71a7c9"],
-  ["#4f6f52", "#a7b75c"],
-  ["#bd3f2d", "#eaa25f"],
-  ["#6d578f", "#c49ad6"],
-  ["#b87926", "#e5c46b"],
+  ["#0a36f5", "#071f9f"],
+  ["#0a36f5", "#071f9f"],
+  ["#0a36f5", "#071f9f"],
+  ["#0a36f5", "#071f9f"],
+  ["#0a36f5", "#071f9f"],
+  ["#0a36f5", "#071f9f"],
 ];
 
 const seedPlaces = window.DARIOS_LIST_PLACES || [];
+const neighborhoodData = window.DARIOS_LIST_NEIGHBORHOODS || [];
 const appConfig = window.DARIOS_LIST_CONFIG || {};
-const portlandCenter = { lat: 45.5152, lng: -122.6784 };
-const approximateMapBounds = {
-  north: 45.64,
-  south: 45.32,
-  west: -122.96,
-  east: -122.48,
+const canonicalPlaceAliases = {
+  "apple-7221381082698316086": "kann",
+  "apple-17531790366307368782": "ken-pizza",
+  "apple-10074551116099932126": "nong",
+  "apple-7373440988096002642": "paadee",
 };
+const portlandCenter = { lat: 45.5152, lng: -122.6784 };
+const maps = window.DariosMaps || null;
 
 const els = {
   visibleCount: document.querySelector("#visibleCount"),
@@ -33,10 +41,13 @@ const els = {
   priceFilter: document.querySelector("#priceFilter"),
   statusFilter: document.querySelector("#statusFilter"),
   sortSelect: document.querySelector("#sortSelect"),
+  filtersToggleButton: document.querySelector("#filtersToggleButton"),
+  filterGrid: document.querySelector("#filterGrid"),
   quickFilters: document.querySelector("#quickFilters"),
   resultHeading: document.querySelector("#resultHeading"),
   clearFiltersButton: document.querySelector("#clearFiltersButton"),
   placeList: document.querySelector("#placeList"),
+  resultStatus: document.querySelector("#resultStatus"),
   emptyState: document.querySelector("#emptyState"),
   googleMap: document.querySelector("#googleMap"),
   mapFallback: document.querySelector("#mapFallback"),
@@ -70,12 +81,20 @@ const els = {
   importFile: document.querySelector("#importFile"),
   listViewButton: document.querySelector("#listViewButton"),
   mapViewButton: document.querySelector("#mapViewButton"),
+  guideViewButton: document.querySelector("#guideViewButton"),
   contentGrid: document.querySelector(".content-grid"),
+  guidesPanel: document.querySelector("#guidesPanel"),
+  guideSearch: document.querySelector("#guideSearch"),
+  guideList: document.querySelector("#guideList"),
+  guideDetail: document.querySelector("#guideDetail"),
+  openRouteButton: document.querySelector("#openRouteButton"),
+  connectionStatus: document.querySelector("#connectionStatus"),
 };
 
 const state = {
   places: loadPlaces(),
-  saved: new Set(JSON.parse(localStorage.getItem(SAVED_KEY) || "[]")),
+  saved: loadIdSet(SAVED_KEY, LEGACY_KEYS.saved),
+  visited: loadIdSet(VISITED_KEY),
   filters: {
     query: "",
     category: "all",
@@ -88,6 +107,10 @@ const state = {
   },
   routeSeed: 0,
   currentRoute: [],
+  activeView: "list",
+  selectedNeighborhood: neighborhoodData[0]?.id || "",
+  guideQuery: "",
+  activePlaceId: "",
 };
 
 const quickFilters = [
@@ -99,30 +122,134 @@ const quickFilters = [
   ["solo", "Solo reset"],
   ["gift", "Gift hunt"],
 ];
+const filterTaxonomy = {
+  moods: [
+    "active",
+    "calm",
+    "casual",
+    "celebratory",
+    "cozy",
+    "creative",
+    "curious",
+    "espresso",
+    "focused",
+    "fun",
+    "moody",
+    "quiet",
+    "rainy",
+    "reset",
+    "social",
+    "thoughtful",
+    "warm",
+  ],
+  moments: [
+    "brunch",
+    "celebration",
+    "community",
+    "date",
+    "dinner",
+    "gift",
+    "group",
+    "lunch",
+    "morning",
+    "night",
+    "quick",
+    "rainy",
+    "recovery",
+    "run",
+    "seasonal",
+    "solo",
+    "summer",
+    "sunset",
+    "visitor",
+    "walk",
+    "work",
+    "workout",
+  ],
+};
 
 const mapState = {
   map: null,
-  infoWindow: null,
   markers: new Map(),
-  loader: null,
+  loading: null,
 };
 
 function loadPlaces() {
-  const stored = localStorage.getItem(STORAGE_KEY);
+  const stored = safeStorageGet(STORAGE_KEY) || safeStorageGet(LEGACY_KEYS.places);
   if (!stored) return seedPlaces.map(normalizePlace);
   try {
-    return JSON.parse(stored).map(normalizePlace);
+    const parsed = JSON.parse(stored);
+    if (!Array.isArray(parsed)) return seedPlaces.map(normalizePlace);
+    const seedById = new Map(seedPlaces.map((place) => [place.id, place]));
+    return parsed
+      .filter((place) => !canonicalPlaceAliases[place?.id])
+      .map((place, index) => {
+        const seed = seedById.get(place.id) || {};
+        const locationFields = [
+          "appleCategory",
+          "address",
+          "mapsUrl",
+          "website",
+          "phone",
+          "lat",
+          "lng",
+          "coordinatesVerified",
+          "coordinateStatus",
+        ];
+        const migrated = { ...place };
+        locationFields.forEach((field) => {
+          if ((migrated[field] === undefined || migrated[field] === null || migrated[field] === "") && seed[field] !== undefined) {
+            migrated[field] = seed[field];
+          }
+        });
+        return normalizePlace(migrated, index);
+      });
   } catch {
     return seedPlaces.map(normalizePlace);
   }
 }
 
 function persistPlaces() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.places));
+  safeStorageSet(STORAGE_KEY, JSON.stringify(state.places));
 }
 
 function persistSaved() {
-  localStorage.setItem(SAVED_KEY, JSON.stringify([...state.saved]));
+  safeStorageSet(SAVED_KEY, JSON.stringify([...state.saved]));
+}
+
+function persistVisited() {
+  safeStorageSet(VISITED_KEY, JSON.stringify([...state.visited]));
+}
+
+function safeStorageGet(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeStorageSet(key, value) {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch {
+    showToast("This browser blocked local storage. Your change works for this session only.");
+    return false;
+  }
+}
+
+function loadIdSet(key, fallbackKey = "") {
+  try {
+    const value = JSON.parse(safeStorageGet(key) || (fallbackKey ? safeStorageGet(fallbackKey) : "") || "[]");
+    return new Set(
+      Array.isArray(value)
+        ? value.map(String).map((id) => canonicalPlaceAliases[id] || id)
+        : [],
+    );
+  } catch {
+    return new Set();
+  }
 }
 
 function uniqueValues(key, nested = false) {
@@ -131,15 +258,29 @@ function uniqueValues(key, nested = false) {
 }
 
 function fillSelect(select, label, values) {
-  select.innerHTML = [`<option value="all">${label}</option>`, ...values.map((value) => `<option value="${escapeAttr(value)}">${value}</option>`)].join("");
+  select.replaceChildren();
+  const first = document.createElement("option");
+  first.value = "all";
+  first.textContent = label;
+  select.append(first);
+  values.forEach((value) => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = value;
+    select.append(option);
+  });
 }
 
 function setupFilters() {
   fillSelect(els.categoryFilter, "Any category", uniqueValues("category"));
   fillSelect(els.neighborhoodFilter, "Any neighborhood", uniqueValues("neighborhood"));
-  fillSelect(els.moodFilter, "Any mood", uniqueValues("moods", true));
-  fillSelect(els.momentFilter, "Any moment", uniqueValues("moments", true));
-  fillSelect(els.routeMood, "Any mood", uniqueValues("moods", true));
+  const availableMoods = new Set(uniqueValues("moods", true));
+  const availableMoments = new Set(uniqueValues("moments", true));
+  const moods = filterTaxonomy.moods.filter((value) => availableMoods.has(value));
+  const moments = filterTaxonomy.moments.filter((value) => availableMoments.has(value));
+  fillSelect(els.moodFilter, "Any mood", moods);
+  fillSelect(els.momentFilter, "Any moment", moments);
+  fillSelect(els.routeMood, "Any mood", moods);
   renderQuickFilters();
 }
 
@@ -214,16 +355,20 @@ function render() {
   els.savedCount.textContent = state.saved.size;
   els.totalCount.textContent = state.places.length;
   els.resultHeading.textContent = headingForFilters(places.length);
+  els.resultStatus.textContent = `${places.length} place${places.length === 1 ? "" : "s"} shown.`;
   els.emptyState.hidden = places.length > 0;
   renderPlaces(places);
   renderMap(places);
   renderRoute();
+  renderGuides();
   renderQuickFilters();
   persistViewState();
 }
 
 function headingForFilters(count) {
-  const active = Object.entries(state.filters).filter(([, value]) => value && value !== "all");
+  const active = Object.entries(state.filters).filter(
+    ([key, value]) => key !== "sort" && value && value !== "all",
+  );
   if (!active.length) return "All spots";
   if (state.filters.query) return `${count} match${count === 1 ? "" : "es"} for "${state.filters.query}"`;
   const label = active[0][1];
@@ -233,45 +378,47 @@ function headingForFilters(count) {
 function renderPlaces(places) {
   els.placeList.innerHTML = places
     .map((place, index) => {
-      const [a, b] = colorsFor(place);
       const saved = state.saved.has(place.id);
-      const tags = place.tags.slice(0, 3).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("");
+      const displayIndex = String(place.rank || index + 1).padStart(3, "0");
       return `
-        <article class="place-card" style="--accent-a:${a};--accent-b:${b}">
-          <button class="place-art" type="button" data-open="${escapeAttr(place.id)}" aria-label="Open ${escapeAttr(place.name)}"></button>
-          <div class="place-body">
-            <div class="place-meta">
-              <span>${escapeHtml(place.category)}</span>
-              <span>${escapeHtml(place.neighborhood)}</span>
-              <span>${escapeHtml(place.price)}</span>
-              <span>${statusLabel(place.status)}</span>
-            </div>
-            <h3>${escapeHtml(place.name)}</h3>
-            <p class="place-note">${escapeHtml(place.note)}</p>
-            <div class="tag-row">${tags}</div>
-            <div class="card-actions">
-              <button class="save-button ${saved ? "is-saved" : ""}" type="button" data-save="${escapeAttr(place.id)}">
-                ${saved ? "Saved" : "Save"}
-              </button>
-              <button class="text-button" type="button" data-open="${escapeAttr(place.id)}">Details</button>
-            </div>
+        <article class="place-card">
+          <span class="place-index">${displayIndex}</span>
+          <button class="place-primary" type="button" data-open="${escapeAttr(place.id)}" aria-label="Open ${escapeAttr(place.name)}">
+            <strong>${escapeHtml(place.name)}</strong>
+            <span>${escapeHtml(place.note)}</span>
+          </button>
+          <span class="place-data place-category">${escapeHtml(place.category)}</span>
+          <span class="place-data place-neighborhood">${escapeHtml(place.neighborhood)}</span>
+          <span class="place-data place-price">${escapeHtml(place.price)}</span>
+          <span class="place-data place-status place-status-owner">${statusLabel(place.status)}</span>
+          <div class="card-actions">
+            <button class="save-button ${saved ? "is-saved" : ""}" type="button" data-save="${escapeAttr(place.id)}" aria-label="${saved ? "Remove" : "Save"} ${escapeAttr(place.name)}">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6.5 4.5h11v15l-5.5-3-5.5 3v-15Z" />
+              </svg>
+              <span>${saved ? "Saved" : "Save"}</span>
+            </button>
+            <button class="details-button" type="button" data-open="${escapeAttr(place.id)}" aria-label="View details for ${escapeAttr(place.name)}">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m9 5 7 7-7 7" />
+              </svg>
+            </button>
           </div>
         </article>
       `;
     })
     .join("");
+  observePlaceRows();
 }
 
 function renderPins(visiblePlaces) {
-  const visibleIds = new Set(visiblePlaces.map((place) => place.id));
-  els.pinLayer.innerHTML = state.places
+  els.pinLayer.innerHTML = visiblePlaces
     .map((place) => {
-      const muted = visibleIds.has(place.id) ? "" : "is-muted";
       const saved = state.saved.has(place.id) ? "is-saved" : "";
       return `
         <button
-          class="map-pin ${muted} ${saved}"
-          style="left:${place.x}%;top:${place.y}%;--pin:${colorsFor(place)[0]}"
+          class="map-pin ${saved}"
+          style="left:${place.x}%;top:${place.y}%"
           type="button"
           data-open="${escapeAttr(place.id)}"
           title="${escapeAttr(place.name)}"
@@ -289,7 +436,11 @@ function renderMap(visiblePlaces) {
   if (!googleMapsApiKey()) {
     showMapFallback("Map preview", "Live Google map turns on when the production key is configured.");
   }
-  if (mapState.map) updateGoogleMarkers(visiblePlaces);
+  if (mapState.map) {
+    updateGoogleMarkers(visiblePlaces).catch(() => {
+      showMapFallback("Map preview", "Verified map markers are temporarily unavailable.");
+    });
+  }
 }
 
 function googleMapsApiKey() {
@@ -302,172 +453,96 @@ async function ensureGoogleMap() {
     return true;
   }
 
-  const key = googleMapsApiKey();
-  if (!key) {
+  if (!maps || !googleMapsApiKey()) {
     showMapFallback("Map preview", "Live Google map turns on when the production key is configured.");
     return false;
   }
 
-  setMapStatus("Loading map", "Pulling in Google Maps.");
+  if (mapState.loading) return mapState.loading;
+  setMapStatus("Loading verified map", "Connecting the places with confirmed coordinates.");
 
-  try {
-    await loadGoogleMapsScript(key);
-    if (!window.google?.maps?.Map) throw new Error("Google Maps did not initialize.");
-
-    mapState.map = new google.maps.Map(els.googleMap, {
-      center: portlandCenter,
-      zoom: 11,
-      clickableIcons: false,
-      fullscreenControl: false,
-      mapTypeControl: false,
-      streetViewControl: false,
-      styles: [
-        { featureType: "poi", elementType: "labels.icon", stylers: [{ visibility: "off" }] },
-        { featureType: "poi.business", stylers: [{ visibility: "off" }] },
-        { featureType: "road", elementType: "geometry", stylers: [{ saturation: -60 }, { lightness: 20 }] },
-        { featureType: "water", elementType: "geometry", stylers: [{ color: "#9fb9c6" }] },
-        { featureType: "landscape", elementType: "geometry", stylers: [{ color: "#f2eee4" }] },
-      ],
-    });
-    mapState.infoWindow = new google.maps.InfoWindow();
-    showGoogleMap();
-    updateGoogleMarkers(filteredPlaces());
-    return true;
-  } catch {
-    showMapFallback("Map preview", "Google Maps could not load, so the local preview is still active.");
-    return false;
-  }
+  mapState.loading = (async () => {
+    try {
+      mapState.map = await maps.createMap(els.googleMap, {
+        center: portlandCenter,
+        zoom: 11,
+      });
+      showGoogleMap();
+      await updateGoogleMarkers(filteredPlaces());
+      return true;
+    } catch {
+      mapState.map = null;
+      showMapFallback("Map preview", "Google Maps could not load, so the local preview is still active.");
+      return false;
+    } finally {
+      mapState.loading = null;
+    }
+  })();
+  return mapState.loading;
 }
 
-function loadGoogleMapsScript(key) {
-  if (window.google?.maps?.Map) return Promise.resolve();
-  if (mapState.loader) return mapState.loader;
-
-  mapState.loader = new Promise((resolve, reject) => {
-    const callbackName = "initDariosListMap";
-    window[callbackName] = () => resolve();
-
-    const script = document.createElement("script");
-    script.async = true;
-    script.defer = true;
-    script.dataset.googleMaps = "true";
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&callback=${callbackName}&v=weekly`;
-    script.addEventListener("error", () => reject(new Error("Google Maps script failed to load.")));
-    document.head.append(script);
-  });
-
-  return mapState.loader;
-}
-
-function updateGoogleMarkers(visiblePlaces) {
+async function updateGoogleMarkers(visiblePlaces) {
+  if (!maps || !mapState.map) return;
   const visibleIds = new Set(visiblePlaces.map((place) => place.id));
-  const currentIds = new Set(state.places.map((place) => place.id));
+  const verifiedPlaces = state.places.filter((place) => maps.hasVerifiedCoordinates(place));
+  const currentIds = new Set(verifiedPlaces.map((place) => place.id));
 
   for (const [id, marker] of mapState.markers) {
     if (!currentIds.has(id)) {
-      marker.setMap(null);
+      marker.map = null;
       mapState.markers.delete(id);
     }
   }
 
-  for (const place of state.places) {
-    const position = coordsForPlace(place);
+  for (const place of verifiedPlaces) {
     const label = place.category.slice(0, 1).toUpperCase();
     let marker = mapState.markers.get(place.id);
 
     if (!marker) {
-      marker = new google.maps.Marker({
-        position,
+      marker = await maps.createAdvancedMarker({
+        place,
         map: mapState.map,
         title: place.name,
-        label: {
-          text: label,
-          color: "#fffdf8",
-          fontSize: "11px",
-          fontWeight: "900",
-        },
-        icon: googleMarkerIcon(place),
+        glyphText: label,
+        scale: state.saved.has(place.id) ? 1.18 : 1,
+        onClick: () => openDetail(place.id),
       });
-      marker.addListener("click", () => openDetail(place.id));
-      mapState.markers.set(place.id, marker);
-    } else {
-      marker.setPosition(position);
-      marker.setTitle(place.name);
-      marker.setLabel({
-        text: label,
-        color: "#fffdf8",
-        fontSize: "11px",
-        fontWeight: "900",
-      });
-      marker.setIcon(googleMarkerIcon(place));
+      if (marker) mapState.markers.set(place.id, marker);
     }
-
-    marker.setVisible(visibleIds.has(place.id));
+    if (marker) marker.map = visibleIds.has(place.id) ? mapState.map : null;
   }
 
   if (els.contentGrid.classList.contains("is-map-only")) fitMapToPlaces(visiblePlaces);
 }
 
-function googleMarkerIcon(place) {
-  const saved = state.saved.has(place.id);
-  return {
-    path: google.maps.SymbolPath.CIRCLE,
-    scale: saved ? 11 : 9,
-    fillColor: colorsFor(place)[0],
-    fillOpacity: 0.96,
-    strokeColor: saved ? "#b87926" : "#fffdf8",
-    strokeOpacity: 1,
-    strokeWeight: saved ? 3 : 2,
-  };
-}
-
 function fitMapToPlaces(places) {
-  if (!mapState.map || !places.length) return;
+  if (!mapState.map || !maps) return;
+  const verified = places
+    .map((place) => maps.verifiedCoordinates(place))
+    .filter(Boolean);
+  if (!verified.length) return;
 
-  if (places.length === 1) {
-    mapState.map.setCenter(coordsForPlace(places[0]));
+  if (verified.length === 1) {
+    mapState.map.setCenter(verified[0]);
     mapState.map.setZoom(14);
     return;
   }
 
   const bounds = new google.maps.LatLngBounds();
-  places.forEach((place) => bounds.extend(coordsForPlace(place)));
+  verified.forEach((position) => bounds.extend(position));
   mapState.map.fitBounds(bounds, 42);
-}
-
-function coordsForPlace(place) {
-  const lat = Number(place.lat);
-  const lng = Number(place.lng);
-  if (place.lat !== null && place.lng !== null && Number.isFinite(lat) && Number.isFinite(lng)) {
-    return { lat, lng };
-  }
-
-  const x = clamp(Number(place.x) || 50, 0, 100);
-  const y = clamp(Number(place.y) || 50, 0, 100);
-  const seed = Math.abs(hashCode(place.id || place.name));
-  const latJitter = (((seed % 100) / 100) - 0.5) * 0.006;
-  const lngJitter = ((((seed >> 7) % 100) / 100) - 0.5) * 0.008;
-  const latRange = approximateMapBounds.north - approximateMapBounds.south;
-  const lngRange = approximateMapBounds.east - approximateMapBounds.west;
-
-  return {
-    lat: approximateMapBounds.north - (y / 100) * latRange + latJitter,
-    lng: approximateMapBounds.west + (x / 100) * lngRange + lngJitter,
-  };
-}
-
-function clamp(value, min, max) {
-  return Math.min(Math.max(value, min), max);
 }
 
 function showGoogleMap() {
   els.googleMap.classList.add("is-active");
   els.mapFallback.classList.add("is-hidden");
+  els.mapFallback.setAttribute("aria-hidden", "true");
 }
 
 function showMapFallback(title, message) {
   els.googleMap.classList.remove("is-active");
   els.mapFallback.classList.remove("is-hidden");
+  els.mapFallback.removeAttribute("aria-hidden");
   setMapStatus(title, message);
 }
 
@@ -475,21 +550,116 @@ function setMapStatus(title, message) {
   els.mapStatus.innerHTML = `<strong>${escapeHtml(title)}</strong><span>${escapeHtml(message)}</span>`;
 }
 
-function activateMapView() {
-  els.contentGrid.classList.add("is-map-only");
-  els.mapViewButton.classList.add("is-active");
-  els.listViewButton.classList.remove("is-active");
-  els.mapViewButton.setAttribute("aria-pressed", "true");
-  els.listViewButton.setAttribute("aria-pressed", "false");
-  ensureGoogleMap().then((ready) => {
-    if (ready) renderMap(filteredPlaces());
+function activateView(view, options = {}) {
+  const nextView = ["list", "map", "guides"].includes(view) ? view : "list";
+  state.activeView = nextView;
+  els.contentGrid.hidden = nextView === "guides";
+  els.guidesPanel.hidden = nextView !== "guides";
+  els.contentGrid.classList.toggle("is-map-only", nextView === "map");
+
+  [
+    [els.listViewButton, "list"],
+    [els.mapViewButton, "map"],
+    [els.guideViewButton, "guides"],
+  ].forEach(([button, name]) => {
+    const active = name === nextView;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
   });
+
+  if (nextView === "map") {
+    ensureGoogleMap().then((ready) => {
+      if (ready) renderMap(filteredPlaces());
+    });
+  }
+  if (nextView === "guides") renderGuides();
+  persistViewState();
+  if (options.focus) {
+    const heading = nextView === "guides" ? document.querySelector("#guidesTitle") : els.resultHeading;
+    heading?.focus?.({ preventScroll: true });
+  }
+}
+
+function renderGuides() {
+  if (!neighborhoodData.length) {
+    els.guideList.innerHTML = "";
+    els.guideDetail.innerHTML = `
+      <div class="guide-empty">
+        <p class="eyebrow">Index unavailable</p>
+        <h3>Neighborhood data needs to be generated.</h3>
+      </div>
+    `;
+    return;
+  }
+  const query = state.guideQuery.trim().toLowerCase();
+  const visible = neighborhoodData.filter((guide) => guide.name.toLowerCase().includes(query));
+  if (!visible.some((guide) => guide.id === state.selectedNeighborhood)) {
+    state.selectedNeighborhood = visible[0]?.id || neighborhoodData[0].id;
+  }
+  els.guideList.innerHTML = visible
+    .map(
+      (guide, index) => `
+        <button class="guide-index-item ${guide.id === state.selectedNeighborhood ? "is-active" : ""}" type="button" data-guide="${escapeAttr(guide.id)}">
+          <span>${String(index + 1).padStart(2, "0")}</span>
+          <strong>${escapeHtml(guide.name)}</strong>
+          <small>${guide.placeCount} place${guide.placeCount === 1 ? "" : "s"}</small>
+        </button>
+      `,
+    )
+    .join("");
+  const guide = neighborhoodData.find((item) => item.id === state.selectedNeighborhood) || visible[0];
+  if (!guide) {
+    els.guideDetail.innerHTML = `<div class="guide-empty"><h3>No neighborhood matches.</h3><p>Try a broader search.</p></div>`;
+    return;
+  }
+  const places = guide.placeIds
+    .map((id) => state.places.find((place) => place.id === id))
+    .filter(Boolean);
+  const categoryLine = guide.topCategories
+    .slice(0, 4)
+    .map((item) => `${item.name} ${item.count}`)
+    .join(" · ");
+  const moments = guide.topMoments.slice(0, 6);
+  els.guideDetail.innerHTML = `
+    <header class="guide-detail-head">
+      <p class="eyebrow">${String(neighborhoodData.indexOf(guide) + 1).padStart(2, "0")} / ${String(neighborhoodData.length).padStart(2, "0")}</p>
+      <h3>${escapeHtml(guide.name)}</h3>
+      <p>${guide.placeCount} field note${guide.placeCount === 1 ? "" : "s"} in the current list. ${escapeHtml(categoryLine || "More categorization pending.")}</p>
+      <div class="guide-moments">
+        ${moments.map((item) => `<span>${escapeHtml(item.name)} <b>${item.count}</b></span>`).join("")}
+      </div>
+      <div class="guide-actions">
+        <button class="primary-action" type="button" data-view-neighborhood="${escapeAttr(guide.name)}">View places</button>
+        <button class="text-button" type="button" data-map-neighborhood="${escapeAttr(guide.name)}">Map verified spots</button>
+      </div>
+    </header>
+    <ol class="guide-place-list">
+      ${places
+        .map(
+          (place, index) => `
+            <li>
+              <span>${String(index + 1).padStart(2, "0")}</span>
+              <button type="button" data-open="${escapeAttr(place.id)}">
+                <strong>${escapeHtml(place.name)}</strong>
+                <small>${escapeHtml(place.category)} · ${escapeHtml(place.note || "Field note pending.")}</small>
+              </button>
+              <em>${maps?.hasVerifiedCoordinates(place) ? "Mapped" : "Location pending"}</em>
+            </li>
+          `,
+        )
+        .join("")}
+    </ol>
+    <p class="guide-method">This guide is generated from the places already in Dario’s List. It does not add invented neighborhood claims.</p>
+  `;
 }
 
 function renderRoute() {
   const mood = els.routeMood.value;
   const length = Number(els.routeLength.value);
-  const pool = state.places.filter((place) => mood === "all" || place.moods.includes(mood) || place.moments.includes(mood));
+  const filteredPool = filteredPlaces();
+  const pool = filteredPool.filter(
+    (place) => mood === "all" || place.moods.includes(mood) || place.moments.includes(mood),
+  );
   const route = buildRoute(pool, length);
   state.currentRoute = route;
 
@@ -507,16 +677,37 @@ function renderRoute() {
     })
     .join("");
   els.routeStatus.textContent = route.length ? `${route.length} stops ready to copy.` : "No route matches that mood yet.";
+  try {
+    const routeUrl = maps?.buildGoogleRouteUrl(route.map(providerSafePlace), { travelMode: "walking" }) || "";
+    els.openRouteButton.href = routeUrl;
+    els.openRouteButton.hidden = !routeUrl;
+  } catch {
+    els.openRouteButton.hidden = true;
+    els.routeStatus.textContent = route.length
+      ? `${route.length} suggested stops. Connect verified locations to open this as a mapped route.`
+      : "No route matches that mood yet.";
+  }
 }
 
 function buildRoute(pool, length) {
   const categories = ["Coffee", "Market", "Books", "Culture", "Outdoors", "Dessert", "Dinner", "Drinks", "Walk", "Run", "Shop", "Fashion", "Brunch", "Lunch"];
+  const neighborhoodCounts = pool.reduce((counts, place) => {
+    counts.set(place.neighborhood, (counts.get(place.neighborhood) || 0) + 1);
+    return counts;
+  }, new Map());
+  const anchorNeighborhood = [...neighborhoodCounts].sort(
+    (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
+  )[0]?.[0];
+  const neighborhoodPool = anchorNeighborhood
+    ? pool.filter((place) => place.neighborhood === anchorNeighborhood)
+    : pool;
+  const routePool = neighborhoodPool.length >= Math.min(length, 3) ? neighborhoodPool : pool;
   const selected = [];
   const used = new Set();
   const shifted = [...categories.slice(state.routeSeed % categories.length), ...categories.slice(0, state.routeSeed % categories.length)];
 
   for (const category of shifted) {
-    const options = pool.filter((place) => place.category === category && !used.has(place.id));
+    const options = routePool.filter((place) => place.category === category && !used.has(place.id));
     if (!options.length) continue;
     const option = options[(state.routeSeed + selected.length) % options.length];
     selected.push(option);
@@ -524,6 +715,12 @@ function buildRoute(pool, length) {
     if (selected.length === length) break;
   }
 
+  if (selected.length < length) {
+    for (const place of routePool) {
+      if (!used.has(place.id)) selected.push(place);
+      if (selected.length === length) break;
+    }
+  }
   if (selected.length < length) {
     for (const place of pool) {
       if (!used.has(place.id)) selected.push(place);
@@ -537,8 +734,11 @@ function buildRoute(pool, length) {
 function openDetail(id) {
   const place = state.places.find((item) => item.id === id);
   if (!place) return;
+  state.activePlaceId = id;
   renderDetail(id);
   if (!els.detailDialog.open) els.detailDialog.showModal();
+  updateUrlState({ place: id });
+  hydrateLiveDetail(place);
 }
 
 function colorsFor(place) {
@@ -552,6 +752,7 @@ function hashCode(value) {
 
 function setFilter(key, value) {
   state.filters[key] = value;
+  if (key === "neighborhood") updateUrlState({ neighborhood: value === "all" ? "" : value });
   render();
 }
 
@@ -574,6 +775,7 @@ function resetFilters() {
   els.priceFilter.value = "all";
   els.statusFilter.value = "all";
   els.sortSelect.value = "curated";
+  updateUrlState({ neighborhood: "" });
   render();
 }
 
@@ -584,6 +786,17 @@ function toggleSaved(id) {
     state.saved.add(id);
   }
   persistSaved();
+  render();
+  if (els.detailDialog.open) renderDetail(id);
+}
+
+function toggleVisited(id) {
+  if (state.visited.has(id)) {
+    state.visited.delete(id);
+  } else {
+    state.visited.add(id);
+  }
+  persistVisited();
   render();
   if (els.detailDialog.open) renderDetail(id);
 }
@@ -614,6 +827,18 @@ function placeFromForm(formData, editId = "") {
   const existing = state.places.find((place) => place.id === editId);
   const point = existing || inferPoint(neighborhood || name);
   const now = new Date().toISOString();
+  const googlePlaceId = formData.get("googlePlaceId").toString().trim();
+  const googleMatchStatus = formData.get("googleMatchStatus").toString();
+  const coordinateStatus = formData.get("coordinateStatus").toString();
+  const lat = Number(formData.get("lat"));
+  const lng = Number(formData.get("lng"));
+  const validCoordinates =
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lng >= -180 &&
+    lng <= 180;
   return normalizePlace({
     ...existing,
     id: editId || `${slugify(name)}-${Date.now().toString(36)}`,
@@ -632,6 +857,26 @@ function placeFromForm(formData, editId = "") {
     address: formData.get("address").toString().trim(),
     mapsUrl: formData.get("mapsUrl").toString().trim(),
     website: formData.get("website").toString().trim(),
+    google: {
+      ...(existing?.google || {}),
+      placeId: googlePlaceId,
+      matchStatus: googlePlaceId ? googleMatchStatus : "pending",
+      matchedAt: googlePlaceId && googleMatchStatus === "verified" ? now : existing?.google?.matchedAt || "",
+    },
+    geo:
+      validCoordinates && coordinateStatus === "verified"
+        ? {
+            lat,
+            lng,
+            source: "manual",
+            status: "verified",
+            verifiedAt: now,
+          }
+        : null,
+    lat: validCoordinates ? lat : null,
+    lng: validCoordinates ? lng : null,
+    coordinatesVerified: validCoordinates && coordinateStatus === "verified",
+    coordinateStatus,
     x: Number(point.x),
     y: Number(point.y),
     rank: existing?.rank || 0,
@@ -658,6 +903,11 @@ function openPlaceForm(id = "") {
   fields.address.value = place?.address || "";
   fields.mapsUrl.value = place?.mapsUrl || "";
   fields.website.value = place?.website || "";
+  fields.googlePlaceId.value = place?.google?.placeId || "";
+  fields.googleMatchStatus.value = place?.google?.matchStatus || "pending";
+  fields.lat.value = Number.isFinite(Number(place?.lat)) ? place.lat : "";
+  fields.lng.value = Number.isFinite(Number(place?.lng)) ? place.lng : "";
+  fields.coordinateStatus.value = maps?.hasVerifiedCoordinates(place) ? "verified" : "pending";
   fields.note.value = place?.note || "";
   fields.best.value = place?.best || "";
   fields.order.value = place?.order || "";
@@ -687,41 +937,51 @@ function deletePlace(id) {
 function renderDetail(id) {
   const place = state.places.find((item) => item.id === id);
   if (!place) return;
-  const [a, b] = colorsFor(place);
   const saved = state.saved.has(place.id);
-  const nearby = nearbyPlaces(place, 4)
+  const visited = state.visited.has(place.id);
+  const providerPlaceId = reviewedPlaceId(place);
+  const nearby = nearbyPlaces(place, 5)
     .map(
-      (item) => `
+      (item, index) => `
         <button class="nearby-item" type="button" data-open="${escapeAttr(item.id)}">
-          <strong>${escapeHtml(item.name)}</strong>
-          <span>${escapeHtml(item.category)} · ${escapeHtml(item.neighborhood)}</span>
+          <b>${String(index + 1).padStart(2, "0")}</b>
+          <span><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.category)} · ${escapeHtml(item.neighborhood)}</small></span>
+          <em>${item.distance === null ? "Area match" : `${item.distance.toFixed(1)} mi`}</em>
         </button>
       `,
     )
     .join("");
-  const links = [
-    place.mapsUrl ? `<a href="${escapeAttr(place.mapsUrl)}" target="_blank" rel="noopener">Maps</a>` : "",
-    place.website ? `<a href="${escapeAttr(place.website)}" target="_blank" rel="noopener">Website</a>` : "",
-    place.phone ? `<a href="tel:${escapeAttr(String(place.phone).replace(/[^\d+]/g, ""))}">Call</a>` : "",
-  ].filter(Boolean);
+  const directionsUrl = placeRouteUrl(place);
+  const websiteUrl = safeExternalUrl(place.website);
   const sourceDetail = [place.appleCategory, place.source].filter(Boolean).join(" · ") || "Imported place";
   els.detailContent.innerHTML = `
-    <div class="detail-hero" style="--accent-a:${a};--accent-b:${b}"></div>
+    <div class="detail-hero">
+      <span>DL / ${String(place.rank || "—").padStart(3, "0")}</span>
+      <strong>Portland field note</strong>
+    </div>
     <div class="detail-body">
-      <div class="detail-meta">
-        <span>${escapeHtml(place.category)}</span>
-        <span>${escapeHtml(place.neighborhood)}</span>
-        <span>${escapeHtml(place.price)}</span>
-        <span>${statusLabel(place.status)}</span>
+      <div class="detail-title-row">
+        <div>
+          <h2 id="detailTitle">${escapeHtml(place.name)}</h2>
+          <div class="detail-meta">
+            <span><b>Category</b>${escapeHtml(place.category)}</span>
+            <span><b>Neighborhood</b>${escapeHtml(place.neighborhood)}</span>
+            <span><b>Price</b>${escapeHtml(place.price)}</span>
+            <span class="owner-only"><b>Status</b>${statusLabel(place.status)}</span>
+          </div>
+        </div>
       </div>
-      <h2 id="detailTitle">${escapeHtml(place.name)}</h2>
       <div class="detail-actions">
-        <button class="save-button ${saved ? "is-saved" : ""}" type="button" data-save="${escapeAttr(place.id)}">${saved ? "Saved" : "Save"}</button>
-        <button class="text-button" type="button" data-edit="${escapeAttr(place.id)}">Edit</button>
-        <button class="text-button danger-text" type="button" data-delete="${escapeAttr(place.id)}">Delete</button>
-        ${links.join("")}
+        <button class="detail-action ${saved ? "is-active" : ""}" type="button" data-save="${escapeAttr(place.id)}">${saved ? "Saved" : "Save"}</button>
+        <button class="detail-action ${visited ? "is-active" : ""}" type="button" data-visited="${escapeAttr(place.id)}">${visited ? "Visited" : "Mark visited"}</button>
+        <button class="detail-action" type="button" data-share="${escapeAttr(place.id)}">Share</button>
+        ${directionsUrl ? `<a class="detail-action" href="${escapeAttr(directionsUrl)}" target="_blank" rel="noopener">Directions</a>` : ""}
+        ${websiteUrl ? `<a class="detail-action" href="${escapeAttr(websiteUrl)}" target="_blank" rel="noopener">Official site</a>` : ""}
       </div>
-      <p class="detail-note">${escapeHtml(place.note)}</p>
+      <section class="detail-editorial">
+        <p class="eyebrow">Dario’s note</p>
+        <p class="detail-note">${escapeHtml(place.note || "A personal field note is still pending.")}</p>
+      </section>
       <div class="detail-tags">
         ${[...place.tags, ...place.moods, ...place.moments].map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}
       </div>
@@ -747,19 +1007,101 @@ function renderDetail(id) {
           <p>${escapeHtml(sourceDetail)}</p>
         </div>
         <div class="detail-fact">
-          <strong>Boundary</strong>
-          <p>Verify hours and closures before publishing or sending someone across town.</p>
+          <strong>Location confidence</strong>
+          <p>${maps?.hasVerifiedCoordinates(place) ? "Verified coordinates available for map and distance." : "Area preview only. Exact map position is pending verification."}</p>
         </div>
       </div>
-      <div class="nearby-panel">
+      <div class="detail-network">
+        <section class="live-place-panel" id="livePlacePanel">
+          <div class="live-head">
+            <div><p class="eyebrow">Live place details</p><h3>Current information</h3></div>
+            <span>${providerPlaceId ? "Connecting…" : "Not connected"}</span>
+          </div>
+          <div id="livePlaceContent">
+            <div class="live-empty">
+              <strong>${providerPlaceId ? "Loading live details…" : "Curated details only"}</strong>
+              <p>${providerPlaceId ? "Checking current provider information." : "This place needs a reviewed Google Place ID before live hours, phone, and photos can appear."}</p>
+            </div>
+          </div>
+        </section>
+        <section class="nearby-panel">
         <div>
           <p class="eyebrow">Pairings</p>
           <h3>Nearby ideas</h3>
         </div>
         <div class="nearby-list">${nearby || "<p>No nearby pairings yet.</p>"}</div>
+        </section>
       </div>
+      <section class="detail-provenance">
+        <div><p class="eyebrow">Source / provenance</p><p>${escapeHtml(sourceDetail)}</p></div>
+        <p>Live provider facts are requested only when this detail opens and are not stored by Dario’s List.</p>
+      </section>
+      <section class="owner-actions owner-only">
+        <p class="eyebrow">Owner actions / local browser</p>
+        <button class="text-button" type="button" data-edit="${escapeAttr(place.id)}">Edit</button>
+        <button class="text-button danger-text" type="button" data-delete="${escapeAttr(place.id)}">Delete</button>
+      </section>
     </div>
   `;
+}
+
+async function hydrateLiveDetail(place) {
+  const panel = document.querySelector("#livePlacePanel");
+  const content = document.querySelector("#livePlaceContent");
+  const placeId = reviewedPlaceId(place);
+  if (!panel || !content || !placeId) return;
+  try {
+    const livePlace = await maps.fetchPlaceDetails(placeId, {
+      fields: [
+        "businessStatus",
+        "currentOpeningHours",
+        "formattedAddress",
+        "googleMapsURI",
+        "location",
+        "nationalPhoneNumber",
+        "photos",
+        "websiteURI",
+      ],
+    });
+    if (state.activePlaceId !== place.id || !els.detailDialog.open) return;
+    const live = maps.serializePlaceDetails(livePlace);
+    const photo = livePlace.photos?.[0];
+    const photoUrl = maps.freshPhotoUrl(photo, { maxWidth: 1200 });
+    const attribution = live.photos?.[0]?.authorAttributions?.[0];
+    const providerUrl = safeExternalUrl(live.googleMapsURI);
+    const providerWebsite = safeExternalUrl(live.websiteURI);
+    content.innerHTML = `
+      ${photoUrl ? `
+        <figure class="live-photo">
+          <img src="${escapeAttr(photoUrl)}" alt="${escapeAttr(place.name)} from Google Places" />
+          <figcaption>
+            Photo${attribution?.displayName ? ` by ${escapeHtml(attribution.displayName)}` : ""} · Google Places
+          </figcaption>
+        </figure>
+      ` : ""}
+      <dl class="live-facts">
+        <div><dt>Hours</dt><dd>${escapeHtml(live.currentOpeningHours?.weekdayDescriptions?.[new Date().getDay() ? new Date().getDay() - 1 : 6] || "See Google Maps")}</dd></div>
+        <div><dt>Phone</dt><dd>${escapeHtml(live.nationalPhoneNumber || "Not provided")}</dd></div>
+        <div><dt>Address</dt><dd>${escapeHtml(live.formattedAddress || place.address || "Not provided")}</dd></div>
+        <div><dt>Business status</dt><dd>${escapeHtml(humanizeToken(live.businessStatus) || "Not provided")}</dd></div>
+      </dl>
+      <div class="live-links">
+        ${providerUrl ? `<a href="${escapeAttr(providerUrl)}" target="_blank" rel="noopener">View on Google Maps</a>` : ""}
+        ${providerWebsite ? `<a href="${escapeAttr(providerWebsite)}" target="_blank" rel="noopener">Website</a>` : ""}
+      </div>
+    `;
+    panel.querySelector(".live-head > span").textContent = "Live data available";
+  } catch {
+    if (state.activePlaceId !== place.id || !els.detailDialog.open) return;
+    content.innerHTML = `
+      <div class="live-empty is-error">
+        <strong>Live details unavailable</strong>
+        <p>The curated note is still here. Current hours and phone could not be retrieved right now.</p>
+        <button class="text-button" type="button" data-retry-live="${escapeAttr(place.id)}">Try again</button>
+      </div>
+    `;
+    panel.querySelector(".live-head > span").textContent = "Connection failed";
+  }
 }
 
 function splitList(value) {
@@ -778,7 +1120,7 @@ function statusLabel(status) {
     seasonal: "Seasonal",
     verify: "Needs verification",
   };
-  return labels[status] || status || "Unreviewed";
+  return labels[status] || "Unreviewed";
 }
 
 function slugify(value) {
@@ -810,14 +1152,50 @@ function inferPoint(value) {
 }
 
 function nearbyPlaces(place, limit = 4) {
-  return state.places
-    .filter((item) => item.id !== place.id)
-    .map((item) => ({
-      ...item,
-      distance: Math.hypot(Number(item.x) - Number(place.x), Number(item.y) - Number(place.y)),
-    }))
-    .sort((a, b) => a.distance - b.distance)
-    .slice(0, limit);
+  const others = state.places.filter((item) => item.id !== place.id);
+  const verified = maps?.sortByVerifiedDistance(place, others, { unit: "miles" }) || [];
+  if (verified.length) {
+    return verified.slice(0, limit).map(({ place: item, distance }) => ({ ...item, distance }));
+  }
+  return others
+    .filter((item) => item.neighborhood === place.neighborhood)
+    .slice(0, limit)
+    .map((item) => ({ ...item, distance: null }));
+}
+
+function placeRouteUrl(place) {
+  const mapsUrl = safeExternalUrl(place.mapsUrl);
+  if (mapsUrl) return mapsUrl;
+  const coordinates = maps?.verifiedCoordinates(place);
+  if (!coordinates) return "";
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${coordinates.lat},${coordinates.lng}`)}`;
+}
+
+function reviewedPlaceId(place) {
+  if (place?.google?.matchStatus !== "verified") return "";
+  return maps?.extractPlaceId(place) || "";
+}
+
+function providerSafePlace(place) {
+  if (reviewedPlaceId(place)) return place;
+  return { ...place, google: {}, googlePlaceId: "", placeId: "" };
+}
+
+function safeExternalUrl(value) {
+  if (!value) return "";
+  try {
+    const url = new URL(String(value), window.location.href);
+    return ["http:", "https:"].includes(url.protocol) ? url.href : "";
+  } catch {
+    return "";
+  }
+}
+
+function humanizeToken(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function routeText() {
@@ -858,6 +1236,10 @@ function exportPlaces() {
 }
 
 function importPlaces(file) {
+  if (!file || file.size > 2_000_000) {
+    alert("Choose a JSON file smaller than 2 MB.");
+    return;
+  }
   const reader = new FileReader();
   reader.addEventListener("load", () => {
     try {
@@ -883,11 +1265,12 @@ function normalizePlace(place, index) {
   const moments = Array.isArray(place.moments) ? place.moments : splitList(place.moments);
   const lat = Number(place.lat);
   const lng = Number(place.lng);
-  const mapsUrl =
+  const mapsUrl = safeExternalUrl(
     place.mapsUrl ||
     (Number.isFinite(lat) && Number.isFinite(lng)
       ? `https://maps.apple.com/?q=${encodeURIComponent(place.name || "Place")}&ll=${lat},${lng}`
-      : "");
+      : ""),
+  );
   return {
     id: place.id || `imported-${index || 0}-${Date.now().toString(36)}`,
     name: place.name || "Untitled place",
@@ -904,11 +1287,15 @@ function normalizePlace(place, index) {
     note: place.note || "",
     address: place.address || "",
     mapsUrl,
-    website: place.website || "",
+    website: safeExternalUrl(place.website),
     phone: place.phone || "",
     appleCategory: place.appleCategory || "",
     source: place.source || "",
     sourceRef: place.sourceRef || "",
+    google: place.google && typeof place.google === "object" ? { ...place.google } : {},
+    geo: place.geo && typeof place.geo === "object" ? { ...place.geo } : null,
+    coordinatesVerified: place.coordinatesVerified === true,
+    coordinateStatus: place.coordinateStatus || "",
     lat: Number.isFinite(lat) ? lat : null,
     lng: Number.isFinite(lng) ? lng : null,
     x: Number(place.x) || point.x,
@@ -922,6 +1309,7 @@ function normalizePlace(place, index) {
 function parseBulkText(value) {
   return String(value || "")
     .split(/\n+/)
+    .slice(0, 500)
     .map((line) => line.trim())
     .filter(Boolean)
     .filter((line) => !/^https?:\/\/\S+$/i.test(line))
@@ -982,7 +1370,7 @@ function renderImportPreview() {
   const places = parseBulkText(els.bulkImportText.value);
   els.importPreview.innerHTML = `
     <strong>${places.length} place${places.length === 1 ? "" : "s"} ready</strong>
-    <span>${places.slice(0, 4).map((place) => place.name).join(", ") || "Paste lines to preview the import."}</span>
+    <span>${escapeHtml(places.slice(0, 4).map((place) => place.name).join(", ") || "Paste lines to preview the import.")}</span>
   `;
   els.commitImportButton.disabled = places.length === 0;
 }
@@ -1005,15 +1393,95 @@ function commitBulkImport() {
 }
 
 function persistViewState() {
-  localStorage.setItem(VIEW_KEY, JSON.stringify({ filters: state.filters }));
+  safeStorageSet(
+    VIEW_KEY,
+    JSON.stringify({
+      filters: state.filters,
+      activeView: state.activeView,
+      selectedNeighborhood: state.selectedNeighborhood,
+    }),
+  );
 }
 
 function loadViewState() {
   try {
-    const saved = JSON.parse(localStorage.getItem(VIEW_KEY) || "{}");
+    const saved = JSON.parse(safeStorageGet(VIEW_KEY) || safeStorageGet(LEGACY_KEYS.view) || "{}");
     state.filters = { ...state.filters, ...saved.filters };
+    state.activeView = ["list", "map", "guides"].includes(saved.activeView) ? saved.activeView : "list";
+    state.selectedNeighborhood = saved.selectedNeighborhood || state.selectedNeighborhood;
   } catch {
     state.filters = { ...state.filters };
+  }
+}
+
+function updateUrlState(changes = {}) {
+  const url = new URL(window.location.href);
+  Object.entries(changes).forEach(([key, value]) => {
+    if (value) url.searchParams.set(key, value);
+    else url.searchParams.delete(key);
+  });
+  history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
+async function sharePlace(place) {
+  const shareUrl = new URL(window.location.href);
+  shareUrl.searchParams.set("place", place.id);
+  const data = {
+    title: `${place.name} — Dario’s List`,
+    text: `${place.name} · ${place.category} · ${place.neighborhood}`,
+    url: shareUrl.href,
+  };
+  try {
+    if (navigator.share) {
+      await navigator.share(data);
+      return;
+    }
+    await navigator.clipboard.writeText(data.url);
+    showToast("Place link copied.");
+  } catch (error) {
+    if (error?.name !== "AbortError") showToast("Could not share this place.");
+  }
+}
+
+function showToast(message) {
+  let toast = document.querySelector("#appToast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "appToast";
+    toast.className = "app-toast";
+    toast.setAttribute("role", "status");
+    document.body.append(toast);
+  }
+  toast.textContent = message;
+  toast.classList.add("is-visible");
+  window.clearTimeout(showToast.timer);
+  showToast.timer = window.setTimeout(() => toast.classList.remove("is-visible"), 3200);
+}
+
+function updateConnectionStatus() {
+  const online = navigator.onLine;
+  els.connectionStatus.textContent = online
+    ? "Online · live provider details available when connected"
+    : "Offline · curated notes and local saves still work";
+  els.connectionStatus.classList.toggle("is-offline", !online);
+}
+
+function configureOwnerMode() {
+  const editorMode = appConfig.editorMode === true;
+  document.body.classList.toggle("editor-mode", editorMode);
+  if (!editorMode) state.filters.status = "all";
+}
+
+function hydrateFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const placeId = params.get("place");
+  const neighborhood = params.get("neighborhood");
+  if (neighborhood && optionExists(els.neighborhoodFilter, neighborhood)) {
+    state.filters.neighborhood = neighborhood;
+    els.neighborhoodFilter.value = neighborhood;
+  }
+  if (placeId && state.places.some((place) => place.id === placeId)) {
+    window.setTimeout(() => openDetail(placeId), 0);
   }
 }
 
@@ -1045,6 +1513,35 @@ function escapeAttr(value) {
   return escapeHtml(value);
 }
 
+let revealObserver;
+
+function observePlaceRows() {
+  const rows = [...document.querySelectorAll(".place-card")];
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches || !("IntersectionObserver" in window)) {
+    rows.forEach((row) => row.classList.add("is-visible"));
+    return;
+  }
+  if (!revealObserver) {
+    revealObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          entry.target.classList.add("is-visible");
+          revealObserver.unobserve(entry.target);
+        });
+      },
+      { rootMargin: "0px 0px -8% 0px", threshold: 0.08 },
+    );
+  }
+  rows.forEach((row) => revealObserver.observe(row));
+}
+
+function updateScrollProgress() {
+  const available = Math.max(document.documentElement.scrollHeight - window.innerHeight, 1);
+  const progress = Math.min(Math.max(window.scrollY / available, 0), 1);
+  document.documentElement.style.setProperty("--scroll-progress", progress);
+}
+
 els.searchInput.addEventListener("input", (event) => setFilter("query", event.target.value));
 els.categoryFilter.addEventListener("change", (event) => setFilter("category", event.target.value));
 els.neighborhoodFilter.addEventListener("change", (event) => setFilter("neighborhood", event.target.value));
@@ -1053,6 +1550,10 @@ els.momentFilter.addEventListener("change", (event) => setFilter("moment", event
 els.priceFilter.addEventListener("change", (event) => setFilter("price", event.target.value));
 els.statusFilter.addEventListener("change", (event) => setFilter("status", event.target.value));
 els.sortSelect.addEventListener("change", (event) => setFilter("sort", event.target.value));
+els.filtersToggleButton.addEventListener("click", () => {
+  const open = els.filterGrid.classList.toggle("is-open");
+  els.filtersToggleButton.setAttribute("aria-expanded", String(open));
+});
 els.routeMood.addEventListener("change", renderRoute);
 els.routeLength.addEventListener("change", renderRoute);
 els.shuffleRouteButton.addEventListener("click", () => {
@@ -1062,6 +1563,10 @@ els.shuffleRouteButton.addEventListener("click", () => {
 els.copyRouteButton.addEventListener("click", copyRoute);
 els.clearFiltersButton.addEventListener("click", resetFilters);
 els.closeDetailButton.addEventListener("click", () => els.detailDialog.close());
+els.detailDialog.addEventListener("close", () => {
+  state.activePlaceId = "";
+  updateUrlState({ place: "" });
+});
 els.addPlaceButton.addEventListener("click", () => openPlaceForm());
 els.cancelAddButton.addEventListener("click", () => els.addDialog.close());
 els.deletePlaceButton.addEventListener("click", () => deletePlace(els.addPlaceForm.dataset.editId));
@@ -1105,25 +1610,65 @@ els.quickFilters.addEventListener("click", (event) => {
 document.addEventListener("click", (event) => {
   const openButton = event.target.closest("[data-open]");
   const saveButton = event.target.closest("[data-save]");
+  const visitedButton = event.target.closest("[data-visited]");
+  const shareButton = event.target.closest("[data-share]");
   const editButton = event.target.closest("[data-edit]");
   const deleteButton = event.target.closest("[data-delete]");
+  const retryButton = event.target.closest("[data-retry-live]");
+  const guideButton = event.target.closest("[data-guide]");
+  const viewNeighborhoodButton = event.target.closest("[data-view-neighborhood]");
+  const mapNeighborhoodButton = event.target.closest("[data-map-neighborhood]");
   if (openButton) openDetail(openButton.dataset.open);
   if (saveButton) toggleSaved(saveButton.dataset.save);
+  if (visitedButton) toggleVisited(visitedButton.dataset.visited);
+  if (shareButton) {
+    const place = state.places.find((item) => item.id === shareButton.dataset.share);
+    if (place) sharePlace(place);
+  }
   if (editButton) openPlaceForm(editButton.dataset.edit);
   if (deleteButton) deletePlace(deleteButton.dataset.delete);
+  if (retryButton) {
+    const place = state.places.find((item) => item.id === retryButton.dataset.retryLive);
+    if (place) {
+      maps?.clearPlaceDetailCache();
+      hydrateLiveDetail(place);
+    }
+  }
+  if (guideButton) {
+    state.selectedNeighborhood = guideButton.dataset.guide;
+    renderGuides();
+  }
+  if (viewNeighborhoodButton || mapNeighborhoodButton) {
+    const neighborhood = (viewNeighborhoodButton || mapNeighborhoodButton).dataset[
+      viewNeighborhoodButton ? "viewNeighborhood" : "mapNeighborhood"
+    ];
+    state.filters.neighborhood = neighborhood;
+    els.neighborhoodFilter.value = neighborhood;
+    updateUrlState({ neighborhood });
+    render();
+    activateView(viewNeighborhoodButton ? "list" : "map");
+  }
 });
-els.listViewButton.addEventListener("click", () => {
-  els.contentGrid.classList.remove("is-map-only");
-  els.listViewButton.classList.add("is-active");
-  els.mapViewButton.classList.remove("is-active");
-  els.listViewButton.setAttribute("aria-pressed", "true");
-  els.mapViewButton.setAttribute("aria-pressed", "false");
-});
-els.mapViewButton.addEventListener("click", () => {
-  activateMapView();
+els.listViewButton.addEventListener("click", () => activateView("list"));
+els.mapViewButton.addEventListener("click", () => activateView("map"));
+els.guideViewButton.addEventListener("click", () => activateView("guides"));
+els.guideSearch.addEventListener("input", (event) => {
+  state.guideQuery = event.target.value;
+  renderGuides();
 });
 
 loadViewState();
+configureOwnerMode();
 setupFilters();
 syncFilterControls();
 render();
+activateView(state.activeView);
+hydrateFromUrl();
+updateConnectionStatus();
+updateScrollProgress();
+window.addEventListener("scroll", updateScrollProgress, { passive: true });
+window.addEventListener("online", updateConnectionStatus);
+window.addEventListener("offline", updateConnectionStatus);
+if ("serviceWorker" in navigator && window.location.protocol !== "file:") {
+  window.addEventListener("load", () => navigator.serviceWorker.register("./service-worker.js").catch(() => {}));
+}
