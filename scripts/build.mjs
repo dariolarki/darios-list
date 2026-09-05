@@ -12,6 +12,7 @@ const staticFiles = [
   "manifest.webmanifest",
   "service-worker.js",
   "robots.txt",
+  "sitemap.xml",
   "offline.html",
   "privacy.html",
 ];
